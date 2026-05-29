@@ -6,10 +6,6 @@ REM Double-click this file from the project folder to start the server.
 
 cd /d "%~dp0"
 
-echo Procurement Chatbot - Starting Server
-echo ==========================================
-echo.
-
 REM Find a usable Python command.
 where py >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
@@ -60,6 +56,8 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo Dependencies installed.
+
+echo "Open http://localhost:8952 in your browser."
 
 echo Press Ctrl+C to stop the server.
 echo.
