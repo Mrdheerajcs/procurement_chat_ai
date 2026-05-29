@@ -180,7 +180,7 @@ def start_api_server():
     uvicorn.run(
         "chatbot:app",
         host="0.0.0.0",
-        port=8950,
+        port=8952,
         reload=True
     )
 

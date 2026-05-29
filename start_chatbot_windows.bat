@@ -61,17 +61,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 echo Dependencies installed.
 
-echo.
-echo ==========================================
-echo Chatbot is starting...
-echo ==========================================
-echo.
-echo Server:   http://localhost:8950
-echo API Docs: http://localhost:8950/docs
-echo ReDoc:    http://localhost:8950/redoc
-echo.
 echo Press Ctrl+C to stop the server.
-echo ==========================================
 echo.
 
 python chatbot.py
