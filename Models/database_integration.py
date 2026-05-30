@@ -103,6 +103,14 @@ class DatabaseQueryGenerator:
         self.table_embeddings = {}
         self.table_names = list(TABLE_METADATA.keys())
         self._init_table_embeddings()
+
+    @staticmethod
+    def _has_any(text: str, keywords: List[str]) -> bool:
+        return any(keyword in text for keyword in keywords)
+
+    @staticmethod
+    def _is_count_question(question: str) -> bool:
+        return any(keyword in question for keyword in ["how many", "total", "count", "number of"])
     
     def _init_table_embeddings(self):
         """Create semantic embeddings for each table"""
@@ -144,10 +152,94 @@ class DatabaseQueryGenerator:
         if not metadata:
             return None
         
+        is_count_query = self._is_count_question(question_lower)
+
+        # Filter-specific queries should run before generic status/count handling.
+        if table_name == "mas_vendor":
+            select_cols = "vendor_name, vendor_code, gst_no, contact_person, status, is_blacklisted"
+            active_filter = (
+                "UPPER(COALESCE(status::text, '')) IN ('Y', 'YES', 'ACTIVE', 'APPROVED', '1', 'TRUE') "
+                "AND UPPER(COALESCE(is_blacklisted::text, 'N')) NOT IN ('Y', 'YES', 'TRUE', '1')"
+            )
+            inactive_filter = "UPPER(COALESCE(status::text, '')) IN ('N', 'NO', 'INACTIVE', 'DEACTIVATED', '0', 'FALSE')"
+            blacklisted_filter = "UPPER(COALESCE(is_blacklisted::text, 'N')) IN ('Y', 'YES', 'TRUE', '1')"
+
+            if self._has_any(question_lower, ["blacklist", "blacklisted"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {blacklisted_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {blacklisted_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["inactive", "deactivated", "disabled"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {inactive_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {inactive_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["active", "registered", "approved vendor"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {active_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {active_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["vendor", "supplier", "contractor"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name}"
+                return f"SELECT {select_cols} FROM {table_name} LIMIT {limit}"
+
+        if table_name == "bid_technical":
+            select_cols = "company_name, vendor_id, tender_id, evaluation_status, evaluation_score, evaluated_at"
+            qualified_filter = "UPPER(COALESCE(evaluation_status::text, '')) IN ('QUALIFIED', 'PASSED', 'PASS', 'APPROVED', 'ACCEPTED')"
+            pending_filter = "UPPER(COALESCE(evaluation_status::text, '')) IN ('PENDING', 'UNDER EVALUATION', 'UNDER_EVALUATION', 'IN PROGRESS', 'IN_PROGRESS')"
+            rejected_filter = "UPPER(COALESCE(evaluation_status::text, '')) IN ('REJECTED', 'FAILED', 'FAIL', 'DISQUALIFIED', 'NOT QUALIFIED')"
+
+            if self._has_any(question_lower, ["rejected", "failed", "disqualified", "not qualified"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {rejected_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {rejected_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["pending", "under evaluation", "in progress"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {pending_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {pending_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["qualified", "qualification", "passed", "pass bids", "eligible"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {qualified_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {qualified_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["evaluation", "score", "technical", "bid"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name}"
+                return f"SELECT {select_cols} FROM {table_name} LIMIT {limit}"
+
+        if table_name == "mpr_header":
+            approved_filter = "UPPER(COALESCE(approval_status::text, '')) = 'APPROVED'"
+            pending_filter = "UPPER(COALESCE(approval_status::text, '')) = 'PENDING'"
+            rejected_filter = "UPPER(COALESCE(approval_status::text, '')) = 'REJECTED'"
+            high_priority_filter = "UPPER(COALESCE(priority::text, '')) = 'HIGH'"
+
+            if self._has_any(question_lower, ["approved"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {approved_filter}"
+                return f"SELECT mpr_no, approval_status, total_value, priority, status FROM {table_name} WHERE {approved_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["pending"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {pending_filter}"
+                return f"SELECT mpr_no, approval_status, total_value, priority, status FROM {table_name} WHERE {pending_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["rejected"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {rejected_filter}"
+                return f"SELECT mpr_no, approval_status, total_value, priority, status FROM {table_name} WHERE {rejected_filter} LIMIT {limit}"
+
+            if self._has_any(question_lower, ["high priority", "urgent"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {high_priority_filter}"
+                return f"SELECT mpr_no, priority, total_value, status, approval_status FROM {table_name} WHERE {high_priority_filter} LIMIT {limit}"
+
         # Pattern matching for common query types
         
         # Count queries: "how many", "total", "count"
-        if any(keyword in question_lower for keyword in ["how many", "total", "count", "number of"]):
+        if is_count_query:
             return f"SELECT COUNT(*) as total_count FROM {table_name}"
         
         # Status-related queries
@@ -165,13 +257,6 @@ class DatabaseQueryGenerator:
                 date_col = date_cols[0]
                 return f"SELECT * FROM {table_name} ORDER BY {date_col} DESC LIMIT {limit}"
         
-        # Vendor-related: mas_vendor
-        if table_name == "mas_vendor":
-            if any(keyword in question_lower for keyword in ["vendor", "supplier", "contractor", "blacklist"]):
-                if "blacklist" in question_lower:
-                    return f"SELECT vendor_name, vendor_code, is_blacklisted, status FROM {table_name} WHERE is_blacklisted = 'Y' LIMIT {limit}"
-                return f"SELECT vendor_name, vendor_code, gst_no, contact_person, status FROM {table_name} LIMIT {limit}"
-        
         # MPR-related
         if table_name == "mpr_header":
             if "priority" in question_lower:
@@ -183,11 +268,6 @@ class DatabaseQueryGenerator:
         if table_name == "contract":
             if "vendor" in question_lower or "winner" in question_lower or "award" in question_lower:
                 return f"SELECT contract_no, vendor_name, amount, award_date, status FROM {table_name} LIMIT {limit}"
-        
-        # Bid-related
-        if table_name == "bid_technical":
-            if "evaluation" in question_lower or "score" in question_lower:
-                return f"SELECT company_name, evaluation_status, evaluation_score, evaluated_at FROM {table_name} LIMIT {limit}"
         
         # Default: select key columns
         select_cols = ", ".join(metadata['key_columns'][:6])  # Select first 6 key columns
@@ -334,6 +414,17 @@ class DatabaseQueryGenerator:
         lines = []
         lines.append("### Vendors")
         lines.append("")
+
+        if data and "total_count" in data[0]:
+            label = "vendors"
+            if "inactive" in question or "deactivated" in question:
+                label = "inactive vendors"
+            elif "blacklist" in question:
+                label = "blacklisted vendors"
+            elif "active" in question:
+                label = "active vendors"
+            lines.append(f"I found {data[0].get('total_count', 0)} {label}.")
+            return "\n".join(lines)
         
         vendors_seen = set()
         for record in data:
@@ -346,9 +437,11 @@ class DatabaseQueryGenerator:
             # Avoid duplicates
             if vendor_name not in vendors_seen and vendor_name != 'N/A':
                 vendors_seen.add(vendor_name)
-                status_text = "Active" if status == 'Y' else "Inactive"
-                blacklist_text = " (Blacklisted)" if is_blacklisted == 'Y' else ""
-                lines.append(f"- {vendor_name} ({vendor_code}){blacklist_text}")
+                status_value = str(status).strip().upper() if status is not None else ''
+                blacklist_value = str(is_blacklisted).strip().upper() if is_blacklisted is not None else ''
+                status_text = "Active" if status_value in ["Y", "YES", "ACTIVE", "APPROVED", "1", "TRUE"] else "Inactive"
+                blacklist_text = " (Blacklisted)" if blacklist_value in ["Y", "YES", "TRUE", "1"] else ""
+                lines.append(f"- {vendor_name} ({vendor_code}) | Status: {status_text}{blacklist_text}")
         
         return "\n".join(lines)
     
@@ -420,6 +513,17 @@ class DatabaseQueryGenerator:
         lines = []
         lines.append("### Technical Bids")
         lines.append("")
+
+        if data and "total_count" in data[0]:
+            label = "technical bids"
+            if "not qualified" in question or "rejected" in question or "failed" in question or "disqualified" in question:
+                label = "rejected technical bids"
+            elif "pending" in question:
+                label = "pending technical bids"
+            elif "qualified" in question or "passed" in question:
+                label = "qualified technical bids"
+            lines.append(f"I found {data[0].get('total_count', 0)} {label}.")
+            return "\n".join(lines)
         
         companies_seen = set()
         for record in data:
@@ -459,6 +563,19 @@ class DatabaseQueryGenerator:
         lines = []
         
         lines.append("Material Purchase Requests")
+
+        if data and "total_count" in data[0]:
+            label = "MPR(s)"
+            if "approved" in question:
+                label = "approved MPR(s)"
+            elif "pending" in question:
+                label = "pending MPR(s)"
+            elif "rejected" in question:
+                label = "rejected MPR(s)"
+            elif "high priority" in question or "urgent" in question:
+                label = "high-priority MPR(s)"
+            lines.append(f"I found {data[0].get('total_count', 0)} {label}.")
+            return "\n".join(lines)
         
         pending = 0
         approved = 0

@@ -12,12 +12,15 @@ Ask about vendors, suppliers, and vendor details:
 |----------|---------|
 | Vendor overview | "vendor details", "show vendors", "list all vendors" |
 | Vendor status | "active vendors", "vendor status", "vendor list" |
+| Vendor filters | "active vendors", "inactive vendors", "registered suppliers" |
 | Vendor information | "vendor info", "vendor data", "supplier details" |
 | Vendor blacklist | "blacklisted vendors", "vendor blacklist", "deactivated vendors" |
 | Vendor search | "find vendors", "search vendors", "vendor master" |
 
 **More variations:**
 - "Who are the active vendors?"
+- "How many active vendors are registered?"
+- "Show inactive vendors"
 - "Show me all registered vendors"
 - "List the vendors in the system"
 - "Vendor master data"
@@ -58,11 +61,15 @@ Ask about bids, evaluations, and technical qualifications:
 | Technical evaluation | "technical bids", "bid technical", "technical evaluation" |
 | Qualified bids | "qualified bids", "pass bids", "qualified vendors" |
 | Pending evaluation | "pending bids", "pending evaluation", "bids pending" |
+| Rejected bids | "rejected bids", "failed bids", "disqualified vendors" |
 | Bid statistics | "bid count", "number of bids", "bid statistics" |
 
 **More variations:**
 - "Show bid evaluations"
 - "Which bids are qualified?"
+- "How many qualified bids are there?"
+- "Show pending technical bids"
+- "List rejected technical bids"
 - "Technical bid status"
 - "Evaluation results"
 - "Bid compliance"
@@ -99,12 +106,15 @@ Ask about MPRs (Material Purchase Requests):
 | MPR status | "purchase requests", "mpr status", "mpr list" |
 | Approved requests | "approved mpr", "approved requests", "approved purchase" |
 | Pending requests | "pending mpr", "pending requests", "pending approval" |
+| Rejected requests | "rejected mpr", "rejected requests", "declined purchase" |
 | High priority | "high priority", "urgent requests", "priority mpr" |
 | Request details | "mpr details", "request items", "line items" |
 
 **More variations:**
 - "Show purchase requests"
 - "Material purchase status"
+- "How many approved MPRs are there?"
+- "Show rejected MPRs"
 - "Pending approvals"
 - "Request summary"
 - "Procurement requests"
@@ -176,6 +186,8 @@ Ask about offline/physical bid submissions:
 ### Vendor Queries:
 ```
 "What are the active vendors in our system?"
+"How many active vendors are registered?"
+"Show inactive vendors"
 "Can you list all vendor details?"
 "Show me the vendor master"
 "Who are the registered suppliers?"
@@ -193,6 +205,9 @@ Ask about offline/physical bid submissions:
 ```
 "What's the technical bid evaluation status?"
 "How many bids qualified?"
+"Show qualified technical bids"
+"List pending technical bids"
+"Which vendors failed technical evaluation?"
 "Show financial bid details"
 "Which bids are still sealed?"
 ```
@@ -202,6 +217,8 @@ Ask about offline/physical bid submissions:
 "Show me pending purchase requests"
 "What high-priority requests are there?"
 "List all approved MPRs"
+"How many approved MPRs are there?"
+"Show rejected MPRs"
 "How many items are in this request?"
 ```
 
