@@ -196,6 +196,7 @@ class DatabaseQueryGenerator:
     def answer_question(self, question: str, db_url: str) -> Dict:
         """
         Main method: Answer a question by finding relevant table and generating query
+        Only queries the most relevant table(s) when confidence is high
         """
         try:
             # Find relevant tables
@@ -209,9 +210,24 @@ class DatabaseQueryGenerator:
                 }
             
             results = []
+            top_similarity = relevant_tables[0][1] if relevant_tables else 0
             
-            # Query the top 3 most relevant tables
-            for table_name, similarity in relevant_tables[:3]:
+            # Only query tables with high confidence match
+            # If best match is high (>0.65), only query the top 1
+            # If moderate (0.45-0.65), query top 2
+            # If lower, query top 3
+            if top_similarity > 0.65:
+                tables_to_query = relevant_tables[:1]
+            elif top_similarity > 0.50:
+                tables_to_query = relevant_tables[:2]
+            else:
+                tables_to_query = relevant_tables[:3]
+            
+            logger.info(f"Question: {question}")
+            logger.info(f"Top similarity: {top_similarity:.3f} - Querying {len(tables_to_query)} table(s)")
+            
+            # Query only the selected tables
+            for table_name, similarity in tables_to_query:
                 try:
                     query = self.generate_query(table_name, question, limit=10)
                     if query:
@@ -314,61 +330,25 @@ class DatabaseQueryGenerator:
     # ─────────────────────────────────────────────────────────
     
     def _format_vendor_response(self, data: List[Dict], row_count: int, question: str) -> str:
-        """Generate markdown-formatted vendor analysis response"""
+        """Generate simple vendor list response"""
         lines = []
-        
-        lines.append("### Vendor Overview")
-        
-        # Count active and inactive vendors
-        active_count = sum(1 for r in data if r.get('status') == 'Y')
-        inactive_count = row_count - active_count
-        
-        lines.append(f"There are currently {active_count} active vendor(s) registered in the system.")
-        if inactive_count > 0:
-            lines.append(f"Additionally, {inactive_count} inactive vendor(s) exist in records.")
+        lines.append("### Vendors")
         lines.append("")
         
-        # Extract unique vendors
         vendors_seen = set()
-        vendor_list = []
-        duplicates = {}
-        
         for record in data:
             vendor_name = record.get('vendor_name', 'N/A')
             vendor_code = record.get('vendor_code', 'N/A')
+            gst_no = record.get('gst_no', '')
+            status = record.get('status', '')
+            is_blacklisted = record.get('is_blacklisted', 'N')
             
             # Avoid duplicates
             if vendor_name not in vendors_seen and vendor_name != 'N/A':
                 vendors_seen.add(vendor_name)
-                vendor_list.append(f"{vendor_name} (`{vendor_code}`)")
-            elif vendor_name != 'N/A':
-                duplicates[vendor_name] = duplicates.get(vendor_name, 1) + 1
-        
-        lines.append("")
-        lines.append("Key Observations")
-        lines.append("")
-        
-        observations = []
-        
-        # Check for duplicate vendor entries
-        if duplicates:
-            observations.append(f"- Multiple entries exist for {len(duplicates)} vendor(s): {', '.join(list(duplicates.keys())[:3])}")
-        
-        # Check for blacklisted vendors
-        blacklisted = [r for r in data if r.get('is_blacklisted') == 'Y']
-        if blacklisted:
-            observations.append(f"- {len(blacklisted)} vendor(s) on blacklist")
-        
-        # Check for missing GST
-        no_gst = [r for r in data if not r.get('gst_no') or r.get('gst_no') == 'N/A']
-        if no_gst:
-            observations.append(f"- {len(no_gst)} vendor(s) missing GST information")
-        
-        if observations:
-            for obs in observations:
-                lines.append(obs)
-        else:
-            lines.append("- All vendor records appear complete and valid")
+                status_text = "Active" if status == 'Y' else "Inactive"
+                blacklist_text = " (Blacklisted)" if is_blacklisted == 'Y' else ""
+                lines.append(f"- {vendor_name} ({vendor_code}){blacklist_text}")
         
         return "\n".join(lines)
     
@@ -436,106 +416,41 @@ class DatabaseQueryGenerator:
         return "\n".join(lines)
     
     def _format_bid_technical_response(self, data: List[Dict], row_count: int, question: str) -> str:
-        """Generate markdown-formatted technical bid analysis response"""
+        """Generate simple technical bid list response"""
         lines = []
+        lines.append("### Technical Bids")
+        lines.append("")
         
-        lines.append("Technical Bid Evaluation")
-        
-        qualified_count = 0
-        pending_count = 0
-        rejected_count = 0
-        invalid_status_count = 0
         companies_seen = set()
-        company_duplicates = {}
-        
         for record in data:
             company = record.get('company_name', 'N/A')
-            status = record.get('evaluation_status', 'PENDING')
+            status = record.get('evaluation_status', 'N/A')
+            score = record.get('evaluation_score', 'N/A')
             
-            # Track duplicate companies
-            if company in companies_seen:
-                company_duplicates[company] = company_duplicates.get(company, 1) + 1
-            else:
+            # Avoid duplicates
+            if company not in companies_seen and company != 'N/A':
                 companies_seen.add(company)
-            
-            # Safe status conversion
-            status_str = str(status).strip().upper() if status is not None else 'UNKNOWN'
-            
-            # Handle NaN and invalid values
-            if 'NAN' in status_str or status_str == 'UNKNOWN' or status_str == 'NONE':
-                invalid_status_count += 1
-            elif status_str == 'QUALIFIED':
-                qualified_count += 1
-            elif status_str == 'PENDING':
-                pending_count += 1
-            elif status_str == 'REJECTED':
-                rejected_count += 1
-            else:
-                # Unknown status - count as pending
-                pending_count += 1
-        
-        lines.append(f"I found {row_count} technical bid record(s) in the system.")
-        lines.append("")
-        
-        lines.append("#### Bid Status Summary")
-        lines.append("")
-        lines.append(f"- Qualified: {qualified_count}")
-        lines.append(f"- Pending: {pending_count}")
-        if rejected_count > 0:
-            lines.append(f"- Rejected: {rejected_count}")
-        if invalid_status_count > 0:
-            lines.append(f"- Missing/Invalid Status: {invalid_status_count}")
-        lines.append("")
-        
-        lines.append("Key Observations")
-        lines.append("")
-        
-        observations = []
-        
-        if len(company_duplicates) > 0:
-            dup_names = ', '.join([f"{k}" for k in list(company_duplicates.keys())[:3]])
-            observations.append(f"- Multiple entries exist for {dup_names}.")
-        
-        if invalid_status_count > 0:
-            observations.append(f"- Technical bid evaluation records contain incomplete status information (e.g., `nan` values).")
-        
-        if observations:
-            for obs in observations:
-                lines.append(obs)
-        else:
-            lines.append("- All bid evaluations are properly recorded.")
+                lines.append(f"- {company} | Status: {status} | Score: {score}")
         
         return "\n".join(lines)
     
     def _format_bid_financial_response(self, data: List[Dict], row_count: int, question: str) -> str:
-        """Generate markdown-formatted financial bid analysis response"""
+        """Generate simple financial bid list response"""
         lines = []
+        lines.append("### Financial Bids")
+        lines.append("")
         
-        lines.append("### Financial Bid Management")
-        
-        revealed_count = 0
-        sealed_count = 0
-        
+        vendors_seen = set()
         for record in data:
-            is_revealed = record.get('is_revealed', 'N')
-            if is_revealed == 'Y':
-                revealed_count += 1
-            else:
-                sealed_count += 1
-        
-        lines.append(f"I found {row_count} financial bid record(s) in the system.")
-        lines.append("")
-        
-        lines.append("Bid Envelope Status")
-        lines.append("")
-        lines.append(f"- Sealed Bids: {sealed_count}")
-        lines.append(f"- Opened/Revealed Bids: {revealed_count}")
-        lines.append("")
-        
-        if sealed_count > revealed_count:
-            lines.append("Status")
-            lines.append("")
-            lines.append(f"- Financial bid opening process is in progress with {sealed_count - revealed_count} bids still sealed.")
+            vendor_id = record.get('vendor_id', 'N/A')
+            tender_id = record.get('tender_id', 'N/A')
+            emd_value = record.get('emd_value', 'N/A')
+            submitted_at = record.get('submitted_at', 'N/A')
+            
+            # Avoid duplicates by vendor_id
+            if vendor_id not in vendors_seen and vendor_id != 'N/A':
+                vendors_seen.add(vendor_id)
+                lines.append(f"- Vendor {vendor_id} | Tender: {tender_id} | EMD: {emd_value}")
         
         return "\n".join(lines)
     

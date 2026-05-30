@@ -328,21 +328,38 @@ class ChatbotProcessor:
             }
 
     def _combine_responses(self, responses: list, question: str) -> dict:
-        """Intelligently combine PDF and Database responses"""
+        """Intelligently combine PDF and Database responses - prefer highest confidence"""
         
         pdf_responses = [r for r in responses if r["type"] == "pdf"]
         db_responses = [r for r in responses if r["type"] == "database"]
         
-        # Combine both sources
+        # Sort by confidence to prioritize better matches
+        all_responses = responses.copy()
+        all_responses.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+        
+        # Use the highest confidence response(s)
+        # If PDF confidence is high (>0.8), use only PDF
+        # If DB confidence is high (>0.6), use only DB
+        # Otherwise, combine if both are good (>0.5)
+        
         combined_text = []
+        best_confidence = all_responses[0].get("confidence", 0) if all_responses else 0
         
-        if pdf_responses:
-            for resp in pdf_responses:
-                combined_text.append(f"{resp['response']}")
-        
-        if db_responses:
-            for resp in db_responses:
-                combined_text.append(f"{resp['response']}")
+        if pdf_responses and pdf_responses[0].get("confidence", 0) > 0.8:
+            # PDF has very high confidence - use only PDF
+            combined_text.append(pdf_responses[0]['response'])
+            use_db = False
+        elif db_responses and db_responses[0].get("confidence", 0) > 0.6:
+            # DB has high confidence - use only DB
+            combined_text.append(db_responses[0]['response'])
+            use_db = True
+        else:
+            # Combine lower confidence results or use whichever is available
+            if pdf_responses:
+                combined_text.append(pdf_responses[0]['response'])
+            if db_responses:
+                combined_text.append(db_responses[0]['response'])
+            use_db = len(db_responses) > 0
         
         final_response = "\n\n".join(combined_text) if combined_text else "No results found."
         
@@ -351,8 +368,8 @@ class ChatbotProcessor:
             "source": "hybrid",
             "error": False,
             "has_pdf": len(pdf_responses) > 0,
-            "has_database": len(db_responses) > 0,
-            "details": responses
+            "has_database": use_db,
+            "details": [responses[0]] if responses else []  # Only include the best match
         }
 
 
