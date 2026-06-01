@@ -55,6 +55,30 @@ Ask about contracts, agreements, and awards:
 
 ---
 
+## 📄 **Tender Publication Questions**
+
+Ask about tender publication details from `publish_tender_header`.
+Responses return only tender number, tender name, tender description, and published date.
+
+| Question | Example |
+|----------|---------|
+| Tender overview | "tender details", "show tenders", "list tenders" |
+| Published tenders | "published tenders", "show published tender details" |
+| Draft tenders | "draft tenders", "pending approval tenders" |
+| Bid-open tenders | "bid open tenders", "show currently open tenders" |
+| Awarded tenders | "awarded tenders", "show awarded tender details" |
+| Closed tenders | "closed tenders", "expired tenders", "bid ended tenders" |
+
+**More variations:**
+- "Show me published tenders"
+- "List tender details"
+- "Which tenders are open for bidding?"
+- "Show closed tender details"
+- "How many bid open tenders are there?"
+- "How many published tenders are there?"
+
+---
+
 ## 🎯 **Bid & Evaluation Questions**
 
 Ask about bids, evaluations, and technical qualifications:
@@ -205,6 +229,15 @@ Ask about offline/physical bid submissions:
 "What's the total contract value?"
 "Which vendors have been awarded?"
 "List all signed contracts"
+```
+
+### Tender Queries:
+```
+"Show me published tenders"
+"List tender details"
+"Which tenders are open for bidding?"
+"Show closed tender details"
+"How many bid open tenders are there?"
 ```
 
 ### Bid Queries:

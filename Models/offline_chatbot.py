@@ -261,7 +261,7 @@ class ChatbotProcessor:
             
             # If nothing found
             return {
-                "response": "I couldn't find relevant information. Try asking about procurement processes, MPR status, vendor details, contracts, or bids.",
+                "response": "I couldn't find relevant information. Try asking about procurement processes, tender details, MPR status, vendor details, contracts, or bids.",
                 "source": "hybrid",
                 "error": True
             }

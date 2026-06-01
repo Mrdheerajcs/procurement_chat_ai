@@ -39,6 +39,13 @@ TABLE_METADATA = {
         "keywords": ["tender", "bid", "rfq", "closing date", "evaluation"],
         "business_domain": "Tender Management"
     },
+    "publish_tender_header": {
+        "description": "Published tender header containing tender number, tender name, tender description, published date, bid end date, and tender status",
+        "purpose": "List tender publication details and track tender pipeline stages such as draft, published, bid open, awarded, and closed",
+        "key_columns": ["tender_no", "tender_name", "tender_description", "published_date", "tender_status", "bid_end_date"],
+        "keywords": ["tender", "published tender", "publish tender", "bid open", "closed tender", "awarded tender", "draft tender"],
+        "business_domain": "Tender Management"
+    },
     "contract": {
         "description": "Contract records containing awarded vendor information, contract amounts, dates, and status",
         "purpose": "Track contracts awarded after tender closure, vendor selection, and contract lifecycle",
@@ -118,12 +125,123 @@ class DatabaseQueryGenerator:
         return value.replace("'", "''")
 
     @staticmethod
+    def _quote_identifier(value: str) -> str:
+        return '"' + value.replace('"', '""') + '"'
+
+    @staticmethod
     def _availability_mark(value) -> str:
         if value is None:
             return "❌"
         if isinstance(value, str) and not value.strip():
             return "❌"
         return "✅"
+
+    @classmethod
+    def _is_publish_tender_question(cls, question: str) -> bool:
+        question_lower = question.lower()
+        return cls._has_any(
+            question_lower,
+            [
+                "published tender",
+                "published tenders",
+                "publish tender",
+                "tender details",
+                "tender list",
+                "list tenders",
+                "show tenders",
+                "draft tender",
+                "draft tenders",
+                "pending approval tender",
+                "pending approval tenders",
+                "bid open",
+                "open tender",
+                "open tenders",
+                "open for bidding",
+                "currently open",
+                "closed tender",
+                "closed tenders",
+                "expired tender",
+                "expired tenders",
+                "bid ended tender",
+                "bid ended tenders",
+                "awarded tender",
+                "awarded tenders",
+            ],
+        )
+
+    @staticmethod
+    def _first_existing_column(columns: Dict[str, str], candidates: List[str]) -> Optional[str]:
+        for candidate in candidates:
+            column = columns.get(candidate.lower())
+            if column:
+                return column
+        return None
+
+    def _get_table_columns(self, table_name: str, db_url: str) -> Dict[str, str]:
+        query = (
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            f"AND table_name = '{self._escape_sql_literal(table_name)}'"
+        )
+        df = execute_sql_query(query, db_url)
+        if df.empty:
+            return {}
+        return {
+            str(record["column_name"]).lower(): str(record["column_name"])
+            for record in df.to_dict("records")
+            if record.get("column_name")
+        }
+
+    def _generate_publish_tender_query(self, question: str, db_url: str, limit: int = 10) -> str:
+        question_lower = question.lower()
+        columns = self._get_table_columns("publish_tender_header", db_url)
+
+        if not columns:
+            return self.generate_query("publish_tender_header", question, limit)
+
+        tender_no_col = self._first_existing_column(columns, ["tender_no", "tender_number", "tender_ref_no", "tender_id"])
+        tender_name_col = self._first_existing_column(columns, ["tender_name", "name", "title", "tender_title"])
+        tender_description_col = self._first_existing_column(columns, ["tender_description", "tender_desc", "description", "scope_of_work"])
+        published_date_col = self._first_existing_column(columns, ["published_date", "publish_date", "published_on", "published_at", "tender_date", "created_at", "created_date"])
+        tender_status_col = self._first_existing_column(columns, ["tender_status", "status"])
+        bid_end_date_col = self._first_existing_column(columns, ["bid_end_date", "bid_end", "closing_date", "bid_closing_date", "bid_submission_end_date"])
+
+        select_map = [
+            ("tender_no", tender_no_col),
+            ("tender_name", tender_name_col),
+            ("tender_description", tender_description_col),
+            ("published_date", published_date_col),
+        ]
+        select_cols = ", ".join(
+            f"{self._quote_identifier(column)} AS {alias}" if column else f"NULL AS {alias}"
+            for alias, column in select_map
+        )
+
+        filters = []
+        if self._has_any(question_lower, ["draft", "pending approval", "pending_approval"]) and tender_status_col:
+            filters.append(f"UPPER(COALESCE({self._quote_identifier(tender_status_col)}::text, '')) = 'PENDING_APPROVAL'")
+        elif self._has_any(question_lower, ["bid open", "open bids", "currently open", "open tender", "open tenders", "open for bidding"]):
+            if tender_status_col:
+                filters.append(f"UPPER(COALESCE({self._quote_identifier(tender_status_col)}::text, '')) = 'PUBLISHED'")
+            if bid_end_date_col:
+                filters.append(f"{self._quote_identifier(bid_end_date_col)} IS NOT NULL")
+                filters.append(f"{self._quote_identifier(bid_end_date_col)}::date >= CURRENT_DATE")
+        elif self._has_any(question_lower, ["awarded", "award"]) and tender_status_col:
+            filters.append(f"UPPER(COALESCE({self._quote_identifier(tender_status_col)}::text, '')) = 'AWARDED'")
+        elif self._has_any(question_lower, ["closed", "expired", "bid ended", "past bid end"]) and bid_end_date_col:
+            filters.append(f"{self._quote_identifier(bid_end_date_col)} IS NOT NULL")
+            filters.append(f"{self._quote_identifier(bid_end_date_col)}::date < CURRENT_DATE")
+        elif self._has_any(question_lower, ["published", "publish tender", "published tender"]) and tender_status_col:
+            filters.append(f"UPPER(COALESCE({self._quote_identifier(tender_status_col)}::text, '')) = 'PUBLISHED'")
+
+        where_clause = f" WHERE {' AND '.join(filters)}" if filters else ""
+
+        if self._is_count_question(question_lower):
+            return f"SELECT COUNT(*) as total_count FROM publish_tender_header{where_clause}"
+
+        order_clause = f" ORDER BY {self._quote_identifier(published_date_col)} DESC NULLS LAST" if published_date_col else ""
+        return f"SELECT {select_cols} FROM publish_tender_header{where_clause}{order_clause} LIMIT {limit}"
+
 
     @staticmethod
     def _extract_vendor_lookup(question: str) -> Optional[str]:
@@ -229,6 +347,47 @@ class DatabaseQueryGenerator:
                     return f"SELECT COUNT(*) as total_count FROM {table_name}"
                 return f"SELECT {select_cols} FROM {table_name} LIMIT {limit}"
 
+        if table_name == "publish_tender_header":
+            select_cols = "tender_no, tender_name, tender_description, published_date"
+            draft_filter = "UPPER(COALESCE(tender_status::text, '')) = 'PENDING_APPROVAL'"
+            published_filter = "UPPER(COALESCE(tender_status::text, '')) = 'PUBLISHED'"
+            bid_open_filter = (
+                "UPPER(COALESCE(tender_status::text, '')) = 'PUBLISHED' "
+                "AND bid_end_date IS NOT NULL AND bid_end_date::date >= CURRENT_DATE"
+            )
+            awarded_filter = "UPPER(COALESCE(tender_status::text, '')) = 'AWARDED'"
+            closed_filter = "bid_end_date IS NOT NULL AND bid_end_date::date < CURRENT_DATE"
+
+            if self._has_any(question_lower, ["draft", "pending approval", "pending_approval"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {draft_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {draft_filter} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
+            if self._has_any(question_lower, ["bid open", "open bids", "currently open", "open tender", "open tenders", "open for bidding"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {bid_open_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {bid_open_filter} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
+            if self._has_any(question_lower, ["awarded", "award"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {awarded_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {awarded_filter} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
+            if self._has_any(question_lower, ["closed", "expired", "bid ended", "past bid end"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {closed_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {closed_filter} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
+            if self._has_any(question_lower, ["published", "publish tender", "published tender"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name} WHERE {published_filter}"
+                return f"SELECT {select_cols} FROM {table_name} WHERE {published_filter} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
+            if self._has_any(question_lower, ["tender", "rfq"]):
+                if is_count_query:
+                    return f"SELECT COUNT(*) as total_count FROM {table_name}"
+                return f"SELECT {select_cols} FROM {table_name} ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+
         if table_name == "bid_technical":
             select_cols = "company_name, vendor_id, tender_id, evaluation_status, evaluation_score, evaluated_at"
             qualified_filter = "UPPER(COALESCE(evaluation_status::text, '')) IN ('QUALIFIED', 'PASSED', 'PASS', 'APPROVED', 'ACCEPTED')"
@@ -325,9 +484,10 @@ class DatabaseQueryGenerator:
         """
         try:
             # Find relevant tables
+            is_publish_tender_question = self._is_publish_tender_question(question)
             relevant_tables = self.find_relevant_tables(question, threshold=0.35)
             
-            if not relevant_tables:
+            if not relevant_tables and not is_publish_tender_question:
                 return {
                     "response": "I couldn't find relevant data for your question. Please try rephrasing.",
                     "source": "database",
@@ -344,6 +504,8 @@ class DatabaseQueryGenerator:
             # If lower, query top 3
             if vendor_lookup:
                 tables_to_query = [("mas_vendor", 1.0)]
+            elif is_publish_tender_question:
+                tables_to_query = [("publish_tender_header", 1.0)]
             elif top_similarity > 0.65:
                 tables_to_query = relevant_tables[:1]
             elif top_similarity > 0.50:
@@ -357,12 +519,15 @@ class DatabaseQueryGenerator:
             # Query only the selected tables
             for table_name, similarity in tables_to_query:
                 try:
-                    query = self.generate_query(table_name, question, limit=10)
+                    if table_name == "publish_tender_header":
+                        query = self._generate_publish_tender_query(question, db_url, limit=10)
+                    else:
+                        query = self.generate_query(table_name, question, limit=10)
                     if query:
                         logger.info(f"Executing query on {table_name}: {query}")
                         df = execute_sql_query(query, db_url)
                         
-                        if not df.empty:
+                        if not df.empty or table_name == "publish_tender_header":
                             results.append({
                                 "table": table_name,
                                 "similarity": round(similarity, 3),
@@ -411,6 +576,14 @@ class DatabaseQueryGenerator:
                     vendor_result.get('row_count', 0),
                     question.lower()
                 )
+
+        tender_result = next((result for result in results if result.get('table') == "publish_tender_header"), None)
+        if tender_result:
+            return self._format_publish_tender_response(
+                tender_result.get('data', []),
+                tender_result.get('row_count', 0),
+                question.lower()
+            )
         
         # Analyze the data to generate insights
         insights = self._analyze_data(results, question)
@@ -437,6 +610,9 @@ class DatabaseQueryGenerator:
             # Generate insights based on table type and question
             if table == "mas_vendor":
                 sections.append(self._format_vendor_response(data, row_count, question_lower))
+
+            elif table == "publish_tender_header":
+                sections.append(self._format_publish_tender_response(data, row_count, question_lower))
             
             elif table == "contract":
                 sections.append(self._format_contract_response(data, row_count, question_lower))
@@ -530,6 +706,40 @@ class DatabaseQueryGenerator:
                 lines.append(f"- {vendor_name} ({vendor_code}) | Status: {status_text}{blacklist_text}")
         
         return "\n".join(lines)
+
+    def _format_publish_tender_response(self, data: List[Dict], row_count: int, question: str) -> str:
+        """Generate concise published tender list response."""
+        lines = []
+        lines.append("### Tenders")
+        lines.append("")
+
+        if data and "total_count" in data[0]:
+            label = "tender(s)"
+            if "draft" in question or "pending approval" in question:
+                label = "draft tender(s)"
+            elif "bid open" in question or "open tender" in question:
+                label = "bid-open tender(s)"
+            elif "awarded" in question or "award" in question:
+                label = "awarded tender(s)"
+            elif "closed" in question or "expired" in question or "bid ended" in question:
+                label = "closed tender(s)"
+            elif "published" in question:
+                label = "published tender(s)"
+            lines.append(f"I found {data[0].get('total_count', 0)} {label}.")
+            return "\n".join(lines)
+
+        if not data:
+            lines.append("No tender records found for this question.")
+            return "\n".join(lines)
+
+        for record in data:
+            lines.append(f"Tender no - {record.get('tender_no') or 'N/A'}")
+            lines.append(f"Tender name - {record.get('tender_name') or 'N/A'}")
+            lines.append(f"Tender description - {record.get('tender_description') or 'N/A'}")
+            lines.append(f"Published date - {record.get('published_date') or 'N/A'}")
+            lines.append("")
+
+        return "\n".join(lines).rstrip()
     
     def _format_contract_response(self, data: List[Dict], row_count: int, question: str) -> str:
         """Generate markdown-formatted contract analysis response"""
