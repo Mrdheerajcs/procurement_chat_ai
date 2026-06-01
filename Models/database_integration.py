@@ -4,6 +4,7 @@ Provides semantic table routing and dynamic query generation
 """
 
 import json
+import re
 from typing import Dict, List, Tuple, Optional
 from sentence_transformers import SentenceTransformer, util
 import torch
@@ -111,6 +112,29 @@ class DatabaseQueryGenerator:
     @staticmethod
     def _is_count_question(question: str) -> bool:
         return any(keyword in question for keyword in ["how many", "total", "count", "number of"])
+
+    @staticmethod
+    def _escape_sql_literal(value: str) -> str:
+        return value.replace("'", "''")
+
+    @staticmethod
+    def _extract_vendor_lookup(question: str) -> Optional[str]:
+        patterns = [
+            r"\bvendor\s+details\s+(?:of\s+|for\s+)?(.+)$",
+            r"\bvendor\s+info(?:rmation)?\s+(?:of\s+|for\s+)?(.+)$",
+            r"\bdetails\s+(?:of\s+|for\s+)?vendor\s+(.+)$",
+            r"\bshow\s+(?:me\s+)?vendor\s+(.+)$",
+            r"\bfind\s+vendor\s+(.+)$",
+            r"\bsearch\s+vendor\s+(.+)$",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, question, flags=re.IGNORECASE)
+            if match:
+                vendor_name = match.group(1).strip(" .,:;()[]{}\"'")
+                if vendor_name and vendor_name.lower() not in ["details", "info", "information", "list", "master", "data"]:
+                    return vendor_name
+        return None
     
     def _init_table_embeddings(self):
         """Create semantic embeddings for each table"""
@@ -157,12 +181,22 @@ class DatabaseQueryGenerator:
         # Filter-specific queries should run before generic status/count handling.
         if table_name == "mas_vendor":
             select_cols = "vendor_name, vendor_code, gst_no, contact_person, status, is_blacklisted"
+            detail_cols = "vendor_name, vendor_code, email_id, gst_no, address_line1, address_line2, city, country"
             active_filter = (
                 "UPPER(COALESCE(status::text, '')) IN ('Y', 'YES', 'ACTIVE', 'APPROVED', '1', 'TRUE') "
                 "AND UPPER(COALESCE(is_blacklisted::text, 'N')) NOT IN ('Y', 'YES', 'TRUE', '1')"
             )
             inactive_filter = "UPPER(COALESCE(status::text, '')) IN ('N', 'NO', 'INACTIVE', 'DEACTIVATED', '0', 'FALSE')"
             blacklisted_filter = "UPPER(COALESCE(is_blacklisted::text, 'N')) IN ('Y', 'YES', 'TRUE', '1')"
+            vendor_lookup = self._extract_vendor_lookup(question)
+
+            if vendor_lookup:
+                lookup = self._escape_sql_literal(vendor_lookup)
+                return (
+                    f"SELECT {detail_cols} FROM {table_name} "
+                    f"WHERE vendor_name ILIKE '%{lookup}%' OR vendor_code ILIKE '%{lookup}%' "
+                    f"ORDER BY vendor_name LIMIT {limit}"
+                )
 
             if self._has_any(question_lower, ["blacklist", "blacklisted"]):
                 if is_count_query:
@@ -425,6 +459,28 @@ class DatabaseQueryGenerator:
                 label = "active vendors"
             lines.append(f"I found {data[0].get('total_count', 0)} {label}.")
             return "\n".join(lines)
+
+        if data and any(key in data[0] for key in ["email_id", "address_line1", "address_line2", "city", "country"]):
+            for record in data:
+                vendor_name = record.get('vendor_name') or 'N/A'
+                vendor_code = record.get('vendor_code') or 'N/A'
+                email_id = record.get('email_id') or 'N/A'
+                gst_no = record.get('gst_no') or 'N/A'
+                address_parts = [
+                    record.get('address_line1'),
+                    record.get('address_line2'),
+                    record.get('city'),
+                    record.get('country'),
+                ]
+                address = ", ".join(str(part).strip() for part in address_parts if part and str(part).strip()) or 'N/A'
+
+                lines.append(f"Name - {vendor_name} ({vendor_code})")
+                lines.append(f"E-mail - {email_id}")
+                lines.append(f"GST No - {gst_no}")
+                lines.append(f"Address - {address}")
+                lines.append("")
+
+            return "\n".join(lines).rstrip()
         
         vendors_seen = set()
         for record in data:

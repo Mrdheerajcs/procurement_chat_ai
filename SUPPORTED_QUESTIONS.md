@@ -14,6 +14,7 @@ Ask about vendors, suppliers, and vendor details:
 | Vendor status | "active vendors", "vendor status", "vendor list" |
 | Vendor filters | "active vendors", "inactive vendors", "registered suppliers" |
 | Vendor information | "vendor info", "vendor data", "supplier details" |
+| Vendor lookup | "vendor details ABC Traders", "vendor info VEND001", "find vendor ABC" |
 | Vendor blacklist | "blacklisted vendors", "vendor blacklist", "deactivated vendors" |
 | Vendor search | "find vendors", "search vendors", "vendor master" |
 
@@ -21,6 +22,8 @@ Ask about vendors, suppliers, and vendor details:
 - "Who are the active vendors?"
 - "How many active vendors are registered?"
 - "Show inactive vendors"
+- "Vendor details ABC Traders"
+- "Find vendor VEND001"
 - "Show me all registered vendors"
 - "List the vendors in the system"
 - "Vendor master data"
@@ -188,6 +191,8 @@ Ask about offline/physical bid submissions:
 "What are the active vendors in our system?"
 "How many active vendors are registered?"
 "Show inactive vendors"
+"Vendor details ABC Traders"
+"Vendor info VEND001"
 "Can you list all vendor details?"
 "Show me the vendor master"
 "Who are the registered suppliers?"
