@@ -63,6 +63,7 @@ Responses return only tender number, tender name, tender description, and publis
 | Question | Example |
 |----------|---------|
 | Tender overview | "tender details", "show tenders", "list tenders" |
+| Tender lookup | "tender details TEND001", "find tender Medicine Supply", "tender no TEND001" |
 | Published tenders | "published tenders", "show published tender details" |
 | Draft tenders | "draft tenders", "pending approval tenders" |
 | Bid-open tenders | "bid open tenders", "show currently open tenders" |
@@ -72,6 +73,9 @@ Responses return only tender number, tender name, tender description, and publis
 **More variations:**
 - "Show me published tenders"
 - "List tender details"
+- "Tender details TEND001"
+- "Find tender Medicine Supply"
+- "Tender no TEND001"
 - "Which tenders are open for bidding?"
 - "Show closed tender details"
 - "How many bid open tenders are there?"

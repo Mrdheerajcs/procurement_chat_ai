@@ -139,7 +139,7 @@ class DatabaseQueryGenerator:
     @classmethod
     def _is_publish_tender_question(cls, question: str) -> bool:
         question_lower = question.lower()
-        return cls._has_any(
+        return cls._extract_tender_lookup(question) is not None or cls._has_any(
             question_lower,
             [
                 "published tender",
@@ -194,6 +194,7 @@ class DatabaseQueryGenerator:
 
     def _generate_publish_tender_query(self, question: str, db_url: str, limit: int = 10) -> str:
         question_lower = question.lower()
+        tender_lookup = self._extract_tender_lookup(question)
         columns = self._get_table_columns("publish_tender_header", db_url)
 
         if not columns:
@@ -218,7 +219,18 @@ class DatabaseQueryGenerator:
         )
 
         filters = []
-        if self._has_any(question_lower, ["draft", "pending approval", "pending_approval"]) and tender_status_col:
+        if tender_lookup:
+            lookup = self._escape_sql_literal(tender_lookup)
+            lookup_filters = []
+            if tender_no_col:
+                lookup_filters.append(f"{self._quote_identifier(tender_no_col)}::text ILIKE '%{lookup}%'")
+            if tender_name_col:
+                lookup_filters.append(f"{self._quote_identifier(tender_name_col)}::text ILIKE '%{lookup}%'")
+            if tender_description_col:
+                lookup_filters.append(f"{self._quote_identifier(tender_description_col)}::text ILIKE '%{lookup}%'")
+            if lookup_filters:
+                filters.append(f"({' OR '.join(lookup_filters)})")
+        elif self._has_any(question_lower, ["draft", "pending approval", "pending_approval"]) and tender_status_col:
             filters.append(f"UPPER(COALESCE({self._quote_identifier(tender_status_col)}::text, '')) = 'PENDING_APPROVAL'")
         elif self._has_any(question_lower, ["bid open", "open bids", "currently open", "open tender", "open tenders", "open for bidding"]):
             if tender_status_col:
@@ -260,6 +272,50 @@ class DatabaseQueryGenerator:
                 vendor_name = match.group(1).strip(" .,:;()[]{}\"'")
                 if vendor_name and vendor_name.lower() not in ["details", "info", "information", "list", "master", "data"]:
                     return vendor_name
+        return None
+
+    @staticmethod
+    def _extract_tender_lookup(question: str) -> Optional[str]:
+        patterns = [
+            r"\btender\s+details\s+(?:of\s+|for\s+)?(.+)$",
+            r"\btender\s+info(?:rmation)?\s+(?:of\s+|for\s+)?(.+)$",
+            r"\bdetails\s+(?:of\s+|for\s+)?tender\s+(.+)$",
+            r"\bshow\s+(?:me\s+)?tender\s+(.+)$",
+            r"\bfind\s+tender\s+(.+)$",
+            r"\bsearch\s+tender\s+(.+)$",
+            r"\btender\s+no\s+(.+)$",
+            r"\btender\s+number\s+(.+)$",
+            r"\btender_no\s+(.+)$",
+        ]
+
+        ignored_terms = {
+            "details",
+            "info",
+            "information",
+            "list",
+            "master",
+            "data",
+            "overview",
+            "published",
+            "published tenders",
+            "draft",
+            "draft tenders",
+            "closed",
+            "closed tenders",
+            "awarded",
+            "awarded tenders",
+            "open",
+            "open tenders",
+            "bid open",
+            "bid open tenders",
+        }
+
+        for pattern in patterns:
+            match = re.search(pattern, question, flags=re.IGNORECASE)
+            if match:
+                tender_lookup = match.group(1).strip(" .,:;()[]{}\"'")
+                if tender_lookup and tender_lookup.lower() not in ignored_terms:
+                    return tender_lookup
         return None
     
     def _init_table_embeddings(self):
@@ -357,6 +413,17 @@ class DatabaseQueryGenerator:
             )
             awarded_filter = "UPPER(COALESCE(tender_status::text, '')) = 'AWARDED'"
             closed_filter = "bid_end_date IS NOT NULL AND bid_end_date::date < CURRENT_DATE"
+            tender_lookup = self._extract_tender_lookup(question)
+
+            if tender_lookup:
+                lookup = self._escape_sql_literal(tender_lookup)
+                return (
+                    f"SELECT {select_cols} FROM {table_name} "
+                    f"WHERE tender_no::text ILIKE '%{lookup}%' "
+                    f"OR tender_name::text ILIKE '%{lookup}%' "
+                    f"OR tender_description::text ILIKE '%{lookup}%' "
+                    f"ORDER BY published_date DESC NULLS LAST LIMIT {limit}"
+                )
 
             if self._has_any(question_lower, ["draft", "pending approval", "pending_approval"]):
                 if is_count_query:
