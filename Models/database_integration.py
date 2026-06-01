@@ -118,6 +118,14 @@ class DatabaseQueryGenerator:
         return value.replace("'", "''")
 
     @staticmethod
+    def _availability_mark(value) -> str:
+        if value is None:
+            return "❌"
+        if isinstance(value, str) and not value.strip():
+            return "❌"
+        return "✅"
+
+    @staticmethod
     def _extract_vendor_lookup(question: str) -> Optional[str]:
         patterns = [
             r"\bvendor\s+details\s+(?:of\s+|for\s+)?(.+)$",
@@ -181,7 +189,10 @@ class DatabaseQueryGenerator:
         # Filter-specific queries should run before generic status/count handling.
         if table_name == "mas_vendor":
             select_cols = "vendor_name, vendor_code, gst_no, contact_person, status, is_blacklisted"
-            detail_cols = "vendor_name, vendor_code, email_id, gst_no, address_line1, address_line2, city, country"
+            detail_cols = (
+                "vendor_name, vendor_code, email_id, gst_no, address_line1, address_line2, city, country, "
+                "pan_document_path, drug_license_no, gst_document_path, com_certificate_path, other_documents_path"
+            )
             active_filter = (
                 "UPPER(COALESCE(status::text, '')) IN ('Y', 'YES', 'ACTIVE', 'APPROVED', '1', 'TRUE') "
                 "AND UPPER(COALESCE(is_blacklisted::text, 'N')) NOT IN ('Y', 'YES', 'TRUE', '1')"
@@ -325,12 +336,15 @@ class DatabaseQueryGenerator:
             
             results = []
             top_similarity = relevant_tables[0][1] if relevant_tables else 0
+            vendor_lookup = self._extract_vendor_lookup(question)
             
             # Only query tables with high confidence match
             # If best match is high (>0.65), only query the top 1
             # If moderate (0.45-0.65), query top 2
             # If lower, query top 3
-            if top_similarity > 0.65:
+            if vendor_lookup:
+                tables_to_query = [("mas_vendor", 1.0)]
+            elif top_similarity > 0.65:
                 tables_to_query = relevant_tables[:1]
             elif top_similarity > 0.50:
                 tables_to_query = relevant_tables[:2]
@@ -388,6 +402,15 @@ class DatabaseQueryGenerator:
         """Format database results into intelligent, conversational responses"""
         if not results:
             return "No data found."
+
+        if self._extract_vendor_lookup(question):
+            vendor_result = next((result for result in results if result.get('table') == "mas_vendor"), None)
+            if vendor_result:
+                return self._format_vendor_response(
+                    vendor_result.get('data', []),
+                    vendor_result.get('row_count', 0),
+                    question.lower()
+                )
         
         # Analyze the data to generate insights
         insights = self._analyze_data(results, question)
@@ -478,6 +501,13 @@ class DatabaseQueryGenerator:
                 lines.append(f"E-mail - {email_id}")
                 lines.append(f"GST No - {gst_no}")
                 lines.append(f"Address - {address}")
+                lines.append("")
+                lines.append("Uploaded Docs")
+                lines.append(f"Pan No - {self._availability_mark(record.get('pan_document_path'))}")
+                lines.append(f"Company License - {self._availability_mark(record.get('drug_license_no'))}")
+                lines.append(f"Company Gst No - {self._availability_mark(record.get('gst_document_path'))}")
+                lines.append(f"Company certificate - {self._availability_mark(record.get('com_certificate_path'))}")
+                lines.append(f"Other docs - {self._availability_mark(record.get('other_documents_path'))}")
                 lines.append("")
 
             return "\n".join(lines).rstrip()

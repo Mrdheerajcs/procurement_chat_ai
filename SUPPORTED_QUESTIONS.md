@@ -15,6 +15,7 @@ Ask about vendors, suppliers, and vendor details:
 | Vendor filters | "active vendors", "inactive vendors", "registered suppliers" |
 | Vendor information | "vendor info", "vendor data", "supplier details" |
 | Vendor lookup | "vendor details ABC Traders", "vendor info VEND001", "find vendor ABC" |
+| Vendor uploaded docs | Included in vendor lookup results as available/not available indicators |
 | Vendor blacklist | "blacklisted vendors", "vendor blacklist", "deactivated vendors" |
 | Vendor search | "find vendors", "search vendors", "vendor master" |
 
